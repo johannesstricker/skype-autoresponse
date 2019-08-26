@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from skpy import SkypeEventLoop, SkypeNewMessageEvent
 from datetime import datetime
 import argparse
@@ -19,9 +20,9 @@ class Conversation:
     return (now - self.lastAction).total_seconds()
 
 
-class SkypePing(SkypeEventLoop):
+class SkypeAutoResponse(SkypeEventLoop):
     def __init__(self, username, password, response, timeoutInSeconds=60):
-        super(SkypePing, self).__init__(username, password)
+        super(SkypeAutoResponse, self).__init__(username, password)
         self.conversations = {}
         self.response = response
         self.timeoutInSeconds = timeoutInSeconds
@@ -30,7 +31,6 @@ class SkypePing(SkypeEventLoop):
         if isinstance(event, SkypeNewMessageEvent) and event.msg.userId != self.userId:
           if event.msg.userId not in self.conversations:
             self.conversations[event.msg.userId] = Conversation(event.msg.userId)
-
           conversation = self.conversations[event.msg.userId]
           sinceLastMsg = conversation.sinceLastMessage()
           conversation.messageReceived()
@@ -48,7 +48,7 @@ if __name__ == '__main__':
 
   with open(args.response, 'r') as f:
     response = f.read()
-    print(f'\nAuto-reply:\n{response}')
+    print(f'\nNew Skype messages will be answered with:\n{response}')
 
-  ping = SkypePing(args.username, args.password, response, args.timeout)
+  ping = SkypeAutoResponse(args.username, args.password, response, args.timeout)
   ping.loop()
