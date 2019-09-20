@@ -1,42 +1,73 @@
 #!/usr/bin/env python3
-from skpy import SkypeEventLoop, SkypeNewMessageEvent
+from skpy import SkypeEventLoop, SkypeNewMessageEvent, SkypeChatUpdateEvent, Skype
 from datetime import datetime
 import argparse
 import os
+import sys
+import threading
+import time
+import signal
 
 
-class Conversation:
-  def __init__(self, user):
-    self.user = user
-    self.messageCount = 0
-    self.lastAction = datetime.now()
+class PendingChats:
+  def __init__(self):
+    self.chats = {}
 
-  def messageReceived(self):
-    self.lastAction = datetime.now()
-    self.messageCount += 1
-
-  def sinceLastMessage(self):
+  def onMessageReceived(self, chat):
+    """ Returns the time in seconds since the last message was
+    received in this chat. """
     now = datetime.now()
-    return (now - self.lastAction).total_seconds()
+    if chat.id not in self.chats:
+      self.chats[chat.id] = now
+      return sys.maxsize
+    secondsPassed = (now - self.chats[chat.id]).total_seconds()
+    self.chats[chat.id] = now
+    return secondsPassed
 
 
 class SkypeAutoResponse(SkypeEventLoop):
     def __init__(self, username, password, response, timeoutInSeconds=60):
         super(SkypeAutoResponse, self).__init__(username, password)
-        self.conversations = {}
         self.response = response
         self.timeoutInSeconds = timeoutInSeconds
+        # Cache pending contact requests
+        self.pending_contact_requests = [x.user.id for x in self.contacts.requests()]
+        # Cache pending chats
+        self.pending_chats = PendingChats()
+
+    def onNewMessageEvent(self, event):
+        self.respondIfTimedOut(event.msg.chat)
 
     def onEvent(self, event):
         if isinstance(event, SkypeNewMessageEvent) and event.msg.userId != self.userId:
-          if event.msg.userId not in self.conversations:
-            self.conversations[event.msg.userId] = Conversation(event.msg.userId)
-          conversation = self.conversations[event.msg.userId]
-          sinceLastMsg = conversation.sinceLastMessage()
-          conversation.messageReceived()
-          if conversation.messageCount == 1 or sinceLastMsg > self.timeoutInSeconds:
-            event.msg.chat.sendMsg(self.response)
+          return self.onNewMessageEvent(event)
 
+    def respondIfTimedOut(self, chat):
+        secondsSinceLastMsg = self.pending_chats.onMessageReceived(chat)
+        if secondsSinceLastMsg > self.timeoutInSeconds:
+          chat.sendMsg(self.response)
+
+    def updateContactRequests(self):
+        contact_requests = self.contacts.requests()
+        for request in contact_requests:
+          if request.user.id not in self.pending_contact_requests:
+            self.acceptContactRequest(request)
+            self.respondIfTimedOut(request.user.chat)
+
+    def acceptContactRequest(self, request):
+        print(f'\nAccepting incoming contact request from {request.user.id}.')
+        self.pending_contact_requests.append(request.user.id)
+        request.accept()
+        self.respondIfTimedOut(request.user.chat)
+
+    def loop(self):
+      self.running = True
+      while self.running:
+        self.cycle()
+        self.updateContactRequests()
+
+    def stop(self):
+      self.running = False
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(description="Skype auto-responder.")
@@ -51,4 +82,8 @@ if __name__ == '__main__':
     print(f'\nNew Skype messages will be answered with:\n{response}')
 
   ping = SkypeAutoResponse(args.username, args.password, response, args.timeout)
-  ping.loop()
+  thread = threading.Thread(target=ping.loop, args=())
+  thread.start()
+  input("Press any key to exit..")
+  ping.stop()
+  thread.join()
