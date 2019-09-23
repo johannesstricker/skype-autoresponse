@@ -5,8 +5,6 @@ import argparse
 import os
 import sys
 import threading
-import time
-import signal
 
 
 class PendingChats:
@@ -27,7 +25,8 @@ class PendingChats:
 
 class SkypeAutoResponse(SkypeEventLoop):
     def __init__(self, username, password, response, timeoutInSeconds=60):
-        super(SkypeAutoResponse, self).__init__(username, password)
+        tokenName = ''.join([x for x in username.lower() if x in 'abcdefghijklmnopqrstuvqxyz0123456789'])
+        super(SkypeAutoResponse, self).__init__(username, password, os.path.join(os.getcwd(), f'{tokenName}.session'))
         self.response = response
         self.timeoutInSeconds = timeoutInSeconds
         # Cache pending contact requests
@@ -62,9 +61,15 @@ class SkypeAutoResponse(SkypeEventLoop):
 
     def loop(self):
       self.running = True
+      FIFTEEN_MINUTES = 15 * 60
+      lastContactRequestUpdateTime = datetime.now()
       while self.running:
         self.cycle()
-        self.updateContactRequests()
+        # Update contact requests every hour.
+        timeSinceLastUpdate = (datetime.now() - lastContactRequestUpdateTime).total_seconds()
+        if timeSinceLastUpdate >= FIFTEEN_MINUTES:
+          self.updateContactRequests()
+          lastContactRequestUpdateTime = datetime.now()
 
     def stop(self):
       self.running = False
@@ -79,11 +84,12 @@ if __name__ == '__main__':
 
   with open(args.response, 'r') as f:
     response = f.read()
-    print(f'\nNew Skype messages will be answered with:\n{response}')
+    print(f'\nNew Skype messages will be answered with:\n{response}\n')
 
   ping = SkypeAutoResponse(args.username, args.password, response, args.timeout)
   thread = threading.Thread(target=ping.loop, args=())
   thread.start()
   input("Press any key to exit..")
+  print("Stopping the auto-response..")
   ping.stop()
   thread.join()
