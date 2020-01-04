@@ -30,7 +30,8 @@ class SkypeAutoResponse(SkypeEventLoop):
         self.response = response
         self.timeoutInSeconds = timeoutInSeconds
         # Cache pending contact requests
-        self.pending_contact_requests = [x.user.id for x in self.contacts.requests()]
+        requests = self.contacts.requests()
+        self.pending_contact_requests = [x.user.id for x in requests]
         # Cache pending chats
         self.pending_chats = PendingChats()
 
